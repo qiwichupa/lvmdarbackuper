@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# ver 0.02
+# ver 0.02.1
 
 import configparser
 import datetime
@@ -139,6 +139,7 @@ def show_lvm(button):
     current_dir, working_dir = get_directories()
     volumes = os.popen(bin_lvdisplay + " |" + bin_grep + " 'LV Path' | " + bin_awk + " '{print $3}'").read().strip().split('\n')
     #
+    os.system(bin_clear)
     body = program_header()
     working_dir_text = urwid.Text('Working directory is: "' + working_dir + '"')
     body.append(urwid.AttrMap(working_dir_text, None, focus_map='reversed'))
@@ -230,15 +231,15 @@ def start_backup(button, backup_volumes_list):
         try:
             if len(filelist) > 0:
                 lastBackupName = filelist[len(filelist)-1].split('.')[0]
-                print('dar -z bzip2:9 -D -R "' + backup_tmp_mountpoint + '" -c ' + '"./' + backup_filename +
+                print('dar -zbzip2:9 -D -R "' + backup_tmp_mountpoint + '" -c ' + '"./' + backup_filename +
                       '" ' + exclude_string + ' ' + nocompress_string + ' -A "' + lastBackupName + '"')
-                print('\nThis operation may takes a long time. Press CTRL+C once to abort\n')
-                os.system(bin_dar + ' -z bzip2:9 -D -R "' + backup_tmp_mountpoint + '" -c ' + '"./' + backup_filename + '" ' +
+                print('\nThis operation can take a long time. Press CTRL+C once to abort\n')
+                os.system(bin_dar + ' -zbzip2:9 -D -R "' + backup_tmp_mountpoint + '" -c ' + '"./' + backup_filename + '" ' +
                           exclude_string + ' ' + nocompress_string + ' -A "' + lastBackupName + '" | ' + bin_tee + ' -a ' + log_file)
             else:
-                print(bin_dar + ' -z bzip2:9 -D -R "' + backup_tmp_mountpoint + '" -c ' + '"./' + backup_filename + '" ' + exclude_string + ' ' + nocompress_string)
-                print('\nThis operation may takes a long time. Press CTRL+C once to abort\n')
-                os.system('dar -z bzip2:9 -D -R "' + backup_tmp_mountpoint + '" -c ' + '"./' + backup_filename + '" ' + exclude_string + ' ' + nocompress_string + ' | tee -a ' + log_file)
+                print(bin_dar + ' -zbzip2:9 -D -R "' + backup_tmp_mountpoint + '" -c ' + '"./' + backup_filename + '" ' + exclude_string + ' ' + nocompress_string)
+                print('\nThis operation can take a long time. Press CTRL+C once to abort\n')
+                os.system('dar -zbzip2:9 -D -R "' + backup_tmp_mountpoint + '" -c ' + '"./' + backup_filename + '" ' + exclude_string + ' ' + nocompress_string + ' | tee -a ' + log_file)
         except KeyboardInterrupt:
             pass
         os.system(bin_umount + ' "' + backup_tmp_mountpoint + '"')
