@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# ver 0.02.1
+# ver 0.03
 
 import configparser
 import datetime
@@ -25,18 +25,26 @@ def main_screen_2(button):
 
 def main_body():
     body = program_header()
-    merge_button = urwid.Button("To merge")
-    urwid.connect_signal(merge_button, 'click', files_screen)
-    body.append(urwid.AttrMap(merge_button, None, focus_map='reversed'))
-    create_backup_button = urwid.Button("Create Backup")
+
+    create_backup_button = urwid.Button('Backup')
     urwid.connect_signal(create_backup_button, 'click', show_lvm)
     body.append(urwid.AttrMap(create_backup_button, None, focus_map='reversed'))
+
+    restore_backup_button = urwid.Button("Restore")
+    urwid.connect_signal(restore_backup_button, 'click', restore_screen)
+    body.append(urwid.AttrMap(restore_backup_button, None, focus_map='reversed'))
+
+    merge_button = urwid.Button('Merge')
+    urwid.connect_signal(merge_button, 'click', files_screen)
+    body.append(urwid.AttrMap(merge_button, None, focus_map='reversed'))
+
     exit = urwid.Button('Exit')
     urwid.connect_signal(exit, 'click', exit_program)
     body.append(urwid.AttrMap(exit, None, focus_map='reversed'))
 
     body.append(urwid.AttrMap(urwid.Divider(), None, focus_map='reversed'))
     body.append(urwid.AttrMap(urwid.Divider(), None, focus_map='reversed'))
+
     configSectionHeader = urwid.Text('===Config Section ===')
     body.append(urwid.AttrMap(configSectionHeader, None, focus_map='reversed'))
 
@@ -64,6 +72,98 @@ def main_body():
     body.append(urwid.AttrMap(config_file_path_text, None, focus_map='reversed'))
 
     return body
+
+
+#  RESTORE SCREENS
+def restore_screen(button):
+    body = program_header()
+    dirs = get_directories()
+    working_dir = dirs[1]
+    file_list = get_file_list(working_dir)
+    working_directory_header = urwid.Text('Working directory is: "' + working_dir + '"')
+    body.append(urwid.AttrMap(working_directory_header,
+                                 None, focus_map='reversed'))
+    body.append(urwid.AttrMap(urwid.Divider(), None, focus_map='reversed'))
+
+    back = urwid.Button('Back')
+    urwid.connect_signal(back, 'click', main_screen_2)
+    body.append(urwid.AttrMap(back, None, focus_map='reversed'))
+    exit = urwid.Button('Exit')
+    urwid.connect_signal(exit, 'click', exit_program)
+    body.append(urwid.AttrMap(exit, None, focus_map='reversed'))
+    body.append(urwid.AttrMap(urwid.Divider(), None, focus_map='reversed'))
+
+    files_header = urwid.Text('(step 1 of 2) Select file to restore:')
+    body.append(urwid.AttrMap(files_header, None, focus_map='reversed'))
+    for c in file_list:
+        selected_and_all_files = [c, file_list]
+        button = urwid.Button(selected_and_all_files[0])
+        urwid.connect_signal(button, 'click', restore_location_screen,
+                                selected_and_all_files)
+        body.append(urwid.AttrMap(button, None, focus_map='reversed'))
+    main.original_widget = urwid.ListBox(urwid.SimpleFocusListWalker(body))
+
+
+def restore_location_screen(button, selected_and_all_files):
+    body = program_header()
+    body.append(urwid.AttrMap(urwid.Divider(), None, focus_map='reversed'))
+    back = urwid.Button('Back')
+    urwid.connect_signal(back, 'click', restore_screen)
+    body.append(urwid.AttrMap(back, None, focus_map='reversed'))
+    exit = urwid.Button('Exit')
+    urwid.connect_signal(exit, 'click', exit_program)
+    body.append(urwid.AttrMap(exit, None, focus_map='reversed'))
+    body.append(urwid.AttrMap(urwid.Divider(), None, focus_map='reversed'))
+
+    selected_file = selected_and_all_files[0]
+    all_files = selected_and_all_files[1]
+    # filter files to restore: by name and from first one to selected
+    files_to_restore = [x for x in all_files if x.startswith(selected_file[:-26])]
+    files_to_restore = files_to_restore[:files_to_restore.index(selected_file)+1]
+
+
+    files_to_restore_text = '\n  '.join(str(f) for f in files_to_restore)
+    text = urwid.Text(['This archives will be extracted one by one:\n  ' + files_to_restore_text])
+    body.append(urwid.AttrMap(text, None, focus_map='reversed'))
+    body.append(urwid.AttrMap(urwid.Divider(), None, focus_map='reversed'))
+    
+    text2 = urwid.Text(['(step 2 of 2) Select extract point:'])
+    body.append(urwid.AttrMap(text2, None, focus_map='reversed'))
+    mountpoints = []
+    for p in psutil.disk_partitions():
+        button = urwid.Button(p.mountpoint)
+        params = [p.mountpoint,files_to_restore]
+        urwid.connect_signal(button, 'click', restore_start, params)
+        body.append(urwid.AttrMap(button, None, focus_map='reversed'))
+
+    body.append(urwid.AttrMap(urwid.Divider(), None, focus_map='reversed'))
+    checkbox = urwid.CheckBox('Clear (rm -rf) extract point', False, False,set_clear_mountpoint_flag)
+    checkbox.set_state(True)
+    checkbox.set_state(False)
+    body.append(checkbox)
+    main.original_widget = urwid.ListBox(urwid.SimpleFocusListWalker(body))
+
+
+def restore_start(button, params):
+    global clear_mountpoint_flag
+    mountpoint = params[0]
+    files_to_extract = params[1]
+    clear_mountpoint = clear_mountpoint_flag
+
+    body = program_header()
+    back = urwid.Button('Back to main screen')
+    urwid.connect_signal(back, 'click', main_screen_2)
+    body.append(back)
+
+    os.system(bin_clear)
+    if clear_mountpoint:
+        os.system(bin_rm +' -vrf '+ mountpoint)
+
+    for f in files_to_extract:
+        os.system(bin_dar + ' -x ' + f[:-6] + ' -w -v -R ' + mountpoint )
+
+
+    main.original_widget = urwid.ListBox(urwid.SimpleFocusListWalker(body))
 
 
 #  MERGE SCREENS
@@ -179,6 +279,14 @@ def show_lvm(button):
     main.original_widget = urwid.ListBox(urwid.SimpleFocusListWalker(body))
 
 
+def set_clear_mountpoint_flag(checkbox, state):
+    global clear_mountpoint_flag
+    if state is True:
+        clear_mountpoint_flag = True
+    else:
+        clear_mountpoint_flag = False
+
+
 def set_volumes_list(checkbox, state, backup_volumes_list):
     l_v_name = checkbox.get_label().split('|')[1]
     if state is True:
@@ -233,12 +341,12 @@ def start_backup(button, backup_volumes_list):
                 lastBackupName = filelist[len(filelist)-1].split('.')[0]
                 print('dar -zbzip2:9 -D -R "' + backup_tmp_mountpoint + '" -c ' + '"./' + backup_filename +
                       '" ' + exclude_string + ' ' + nocompress_string + ' -A "' + lastBackupName + '"')
-                print('\nThis operation can take a long time. Press CTRL+C once to abort\n')
+                print('\nThis operation may takes a long time. Press CTRL+C once to abort\n')
                 os.system(bin_dar + ' -zbzip2:9 -D -R "' + backup_tmp_mountpoint + '" -c ' + '"./' + backup_filename + '" ' +
                           exclude_string + ' ' + nocompress_string + ' -A "' + lastBackupName + '" | ' + bin_tee + ' -a ' + log_file)
             else:
                 print(bin_dar + ' -zbzip2:9 -D -R "' + backup_tmp_mountpoint + '" -c ' + '"./' + backup_filename + '" ' + exclude_string + ' ' + nocompress_string)
-                print('\nThis operation can take a long time. Press CTRL+C once to abort\n')
+                print('\nThis operation may takes a long time. Press CTRL+C once to abort\n')
                 os.system('dar -zbzip2:9 -D -R "' + backup_tmp_mountpoint + '" -c ' + '"./' + backup_filename + '" ' + exclude_string + ' ' + nocompress_string + ' | tee -a ' + log_file)
         except KeyboardInterrupt:
             pass
