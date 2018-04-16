@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# ver 0.03
+# ver 0.03.2
 
 import configparser
 import datetime
@@ -7,7 +7,9 @@ import glob
 import os
 import psutil
 import re
+import subprocess
 import sys
+import time
 import urwid
 
 # MAIN SCREEN
@@ -155,12 +157,12 @@ def restore_start(button, params):
     urwid.connect_signal(back, 'click', main_screen_2)
     body.append(back)
 
-    os.system(bin_clear)
+    subprocess.call(bin_clear)
     if clear_mountpoint:
-        os.system(bin_rm +' -vrf '+ mountpoint)
+        run_and_log([bin_rm, '-vrf', mountpoint], log_file)
 
     for f in files_to_extract:
-        os.system(bin_dar + ' -x ' + f[:-6] + ' -w -v -R ' + mountpoint )
+        run_and_log([bin_dar, '-x', f[:-6],'-w', '-v', '-R ', mountpoint], log_file)
 
 
     main.original_widget = urwid.ListBox(urwid.SimpleFocusListWalker(body))
@@ -224,7 +226,11 @@ def run_merge(button, files):
     current_file = files[0][:-6]
     previous_file = files[1][:-6]
     previous_fileFull = files[1]
-    os.system(bin_clear + ' &&  ' + bin_dar + '  -ak -+ "' + current_file + '" -A "' + previous_file + '" -@ "' + current_file + '" && ' + bin_rm + ' -f "' + previous_fileFull + '" ; read -p "Press any key to continue"; ' + bin_clear)
+    subprocess.call([bin_clear])
+    cmd_merge = [bin_dar,'-ak','-+',current_file,'-A',previous_file,'-@',current_file]
+    run_and_log(cmd_merge,log_file)
+    cmd_remove_previous_file = [bin_rm, '-f',previous_fileFull]
+    run_and_log(cmd_remove_previous_file, log_file)
     main.original_widget = urwid.Filler(urwid.Pile([
         body[0], body[1],
         urwid.AttrMap(back, None, focus_map='reversed')])
@@ -238,8 +244,7 @@ def show_lvm(button):
     backup_volumes_list = []
     current_dir, working_dir = get_directories()
     volumes = os.popen(bin_lvdisplay + " |" + bin_grep + " 'LV Path' | " + bin_awk + " '{print $3}'").read().strip().split('\n')
-    #
-    os.system(bin_clear)
+
     body = program_header()
     working_dir_text = urwid.Text('Working directory is: "' + working_dir + '"')
     body.append(urwid.AttrMap(working_dir_text, None, focus_map='reversed'))
@@ -306,22 +311,29 @@ def set_volumes_list(checkbox, state, backup_volumes_list):
 
 
 def start_backup(button, backup_volumes_list):
-    log_file = '/tmp/darlvmbackup.log'
-    os.system(bin_clear)
+    pipe_to_log = [' | ', bin_tee, ' -a ', log_file]
+    subprocess.call([bin_clear])
     print('Logging to: ' + log_file)
     for n in backup_volumes_list:
         v_g_name, l_v_name, l_v_path = n.split("|")
         timestamp = '{0:%Y-%m-%d_%H-%M-%S}'.format(datetime.datetime.now())
         backup_filename = v_g_name + '_' + l_v_name + '_' + timestamp
+        backup_full_filename = backup_filename + '.1.dar'
         backup_vol_name = 'backupvol'
         backup_vol_path = l_v_path.replace(l_v_name, backup_vol_name)
         backup_tmp_mountpoint = '/tmp/darlvmbak_' + backup_filename
 
         nocompress_ext  = list(filter(None, get_config_param('nocompress_ext').split('|')))
-        nocompress_string = ''.join([ '-Z \'*.{}\' '.format(ex) for ex in nocompress_ext ])
+        nocompress_params = []
+        for i in nocompress_ext:
+            nocompress_params.append('-Z')
+            nocompress_params.append('\'*.' + i + '\'')
 
         exclude_list =  list(filter(None, get_config_param('exclude_list').split('|')))
-        exclude_string = ''.join([ '-P {} '.format(ex) for ex in exclude_list ])
+        exclude_params = []
+        for i in exclude_list:
+            exclude_params.append('-P')
+            exclude_params.append('\'' + i + '\'')
 
         file_mask = v_g_name + '_' + l_v_name + '_' + '*dar'
         files = glob.glob(file_mask)
@@ -330,32 +342,40 @@ def start_backup(button, backup_volumes_list):
         for file in files:
             filelist.append(file)
 
-        os.system(bin_echo + ' ${volgroup}_${volume} >> ' + log_file)
-        os.system(bin_echo + ' "\n\n======\n' + timestamp + '  ' +
-                  v_g_name + ' ' + l_v_name + '" | ' + bin_tee + ' -a ' + log_file)
+        run_and_log([bin_echo,'\n\n======\n',timestamp,v_g_name,l_v_name, '\nMaking dir:\n', backup_tmp_mountpoint, '\n'], log_file)
         os.makedirs(backup_tmp_mountpoint)
-        os.system(bin_lvcreate + ' -L2G -s -n "' + backup_vol_name + '"  "' + l_v_path + '" | '+ bin_tee + ' -a ' + log_file)
-        os.system(bin_mount + ' "' + backup_vol_path + '" "' + backup_tmp_mountpoint + '"')
+        run_and_log([bin_lvcreate,'-L2G','-s','-n', backup_vol_name, l_v_path], log_file)
+        run_and_log([bin_mount, backup_vol_path, backup_tmp_mountpoint], log_file)
+        cmd_backup = [bin_dar, '-zbzip2:9','-D','-R',backup_tmp_mountpoint,'-c', backup_filename] + exclude_params + nocompress_params
+        if len(filelist) > 0:
+            previous_backup_filename = filelist[len(filelist)-1].split('.')[0]
+            cmd_backup +=  ['-A',previous_backup_filename]
+
+        log = open(log_file,'a')
+        print('[Exec] ' + subprocess.list2cmdline(cmd_backup))
+        log.write(subprocess.list2cmdline(cmd_backup)+'\n')
+        print('\nThis operation may takes a long time. Press CTRL-C once to abort\n')
+        p = subprocess.Popen(cmd_backup, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
         try:
-            if len(filelist) > 0:
-                lastBackupName = filelist[len(filelist)-1].split('.')[0]
-                print('dar -zbzip2:9 -D -R "' + backup_tmp_mountpoint + '" -c ' + '"./' + backup_filename +
-                      '" ' + exclude_string + ' ' + nocompress_string + ' -A "' + lastBackupName + '"')
-                print('\nThis operation may takes a long time. Press CTRL+C once to abort\n')
-                os.system(bin_dar + ' -zbzip2:9 -D -R "' + backup_tmp_mountpoint + '" -c ' + '"./' + backup_filename + '" ' +
-                          exclude_string + ' ' + nocompress_string + ' -A "' + lastBackupName + '" | ' + bin_tee + ' -a ' + log_file)
-            else:
-                print(bin_dar + ' -zbzip2:9 -D -R "' + backup_tmp_mountpoint + '" -c ' + '"./' + backup_filename + '" ' + exclude_string + ' ' + nocompress_string)
-                print('\nThis operation may takes a long time. Press CTRL+C once to abort\n')
-                os.system('dar -zbzip2:9 -D -R "' + backup_tmp_mountpoint + '" -c ' + '"./' + backup_filename + '" ' + exclude_string + ' ' + nocompress_string + ' | tee -a ' + log_file)
+            while p.poll() is None:
+                print(p.stdout.readline())
+                log.write(p.stdout.readline() + '\n')
         except KeyboardInterrupt:
-            pass
-        os.system(bin_umount + ' "' + backup_tmp_mountpoint + '"')
-        os.system(bin_echo + ' y | ' + bin_lvremove  + ' "' + l_v_path + '" | ' +  bin_tee + ' -a ' + log_file)
+            run_and_log([bin_echo, '\nAborting backup...\n'], log_file)
+            cmd_rm_backup = [bin_rm,backup_full_filename]
+            run_and_log([bin_echo, 'Removing dirty backup file...\n'], log_file)
+            run_and_log(cmd_rm_backup, log_file)
+        finally:
+            log.close()
+
+        run_and_log([bin_umount,backup_tmp_mountpoint], log_file)
+        time.sleep(1)
+        run_and_log([bin_lvremove,'-f',l_v_path], log_file)
         if os.path.ismount(backup_tmp_mountpoint) is not True:
             os.rmdir(backup_tmp_mountpoint)
-    #input("Press Enter to continue...")
-    show_lvm(button)
+    time.sleep(2)
+    subprocess.call([bin_clear])
+    main_screen_2(True)
 
 
 # CONFIG
@@ -372,6 +392,7 @@ def init_config():
         config['DEFAULT']['exclude_list'] = 'dev/pts|proc|floppy|cdrom'
         config['DEFAULT']['ignored_volumes'] = ''
         config['DEFAULT']['nocompress_ext'] = 'bz2|zip|rar|7z|deb|rpm'
+        config['DEFAULT']['log_file'] = '/tmp/lvmdarbak.log'
         with open(conf_file, 'w') as configfile:
             config.write(configfile)
         return conf_file
@@ -400,7 +421,8 @@ def program_header():
 
 
 def show_loader():
-    os.system('clear ; echo "Please wait..."')
+    subprocess.call([bin_clear])
+    subprocess.call([bin_echo,'Please wait...'])
 
 
 def raise_root():
@@ -426,6 +448,26 @@ def get_directories():
     finally:
         os.chdir(working_dir)
     return [current_dir, working_dir]
+
+
+def run_and_log(cmd, log_file):
+    if os.path.isfile(log_file) is False:
+        log = open(log_file, 'w')
+        log.close()
+    log = open(log_file, 'a')
+
+    if cmd[0] is not bin_echo:
+        log.write('[Exec] ' + subprocess.list2cmdline(cmd))
+        print('[Exec] '+ subprocess.list2cmdline(cmd))
+
+    proc = subprocess.Popen(cmd,stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
+    for line in proc.stdout:
+        print(line.strip())
+        log.write(line)
+    proc.wait()
+
+    log.write('\n')
+    log.close()
 
 
 def save_working_dir(button, working_dir):
@@ -474,6 +516,7 @@ def check_bins(programs):
 
 # MAIN PROGRAM
 
+log_file = get_config_param('log_file')
 raise_root()
 (bin_dar, bin_clear, bin_echo, 
  bin_tee, bin_rm, 
