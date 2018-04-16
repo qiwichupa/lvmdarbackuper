@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# ver 0.03.2
+# ver 0.03.3
 
 import configparser
 import datetime
@@ -162,7 +162,7 @@ def restore_start(button, params):
         run_and_log([bin_rm, '-vrf', mountpoint], log_file)
 
     for f in files_to_extract:
-        run_and_log([bin_dar, '-x', f[:-6],'-w', '-v', '-R ', mountpoint], log_file)
+        run_and_log([bin_dar, '-x', f[:-6],'-w', '-v', '-R', mountpoint], log_file)
 
 
     main.original_widget = urwid.ListBox(urwid.SimpleFocusListWalker(body))
