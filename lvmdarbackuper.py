@@ -63,7 +63,7 @@ def main_body():
 
     body.append(urwid.AttrMap(urwid.Divider(), None, focus_map='reversed'))
     exclude = get_config_param('exclude_list').replace('|', '\n')
-    excludes_header = 'Exclude List (instant save to config):\n'
+    excludes_header = 'Exclude List (directories, path relative to mounted partitions):\n'
     exclude_listArea = urwid.Edit(excludes_header, exclude, True)
     urwid.connect_signal(exclude_listArea, 'change', save_excludes)
     body.append(urwid.AttrMap(exclude_listArea, None, focus_map='reversed'))
@@ -345,7 +345,7 @@ def start_backup(button, backup_volumes_list):
         run_and_log([bin_echo,'\n\n======\n',timestamp,v_g_name,l_v_name, '\nMaking dir:\n', backup_tmp_mountpoint, '\n'], log_file)
         os.makedirs(backup_tmp_mountpoint)
         run_and_log([bin_lvcreate,'-L2G','-s','-n', backup_vol_name, l_v_path], log_file)
-        run_and_log([bin_mount, backup_vol_path, backup_tmp_mountpoint], log_file)
+        run_and_log([bin_mount, '-o', 'ro', backup_vol_path, backup_tmp_mountpoint], log_file)
         cmd_backup = [bin_dar, '-zbzip2:9','-D','-R',backup_tmp_mountpoint,'-c', backup_filename] + exclude_params + nocompress_params
         if len(filelist) > 0:
             previous_backup_filename = filelist[len(filelist)-1].split('.')[0]
@@ -368,12 +368,13 @@ def start_backup(button, backup_volumes_list):
         finally:
             log.close()
 
+#        time.sleep(1)
         run_and_log([bin_umount,backup_tmp_mountpoint], log_file)
-        time.sleep(1)
-        run_and_log([bin_lvremove,'-f',l_v_path], log_file)
+#        time.sleep(1)
+        run_and_log([bin_lvremove,'-f',backup_vol_path], log_file)
         if os.path.ismount(backup_tmp_mountpoint) is not True:
             os.rmdir(backup_tmp_mountpoint)
-    time.sleep(2)
+    time.sleep(3)
     subprocess.call([bin_clear])
     main_screen_2(True)
 
@@ -460,10 +461,15 @@ def run_and_log(cmd, log_file):
         log.write('[Exec] ' + subprocess.list2cmdline(cmd))
         print('[Exec] '+ subprocess.list2cmdline(cmd))
 
-    proc = subprocess.Popen(cmd,stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
+    proc = subprocess.Popen(cmd,stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.PIPE,  universal_newlines=True)
     for line in proc.stdout:
         print(line.strip())
         log.write(line)
+
+        # autoanswer for merge
+        if line.startswith('At least one slice of an old'):
+            pass#must be pressing enter here
+
     proc.wait()
 
     log.write('\n')
