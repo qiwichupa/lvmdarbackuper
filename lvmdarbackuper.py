@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# ver 0.03.3
+# ver 0.03.8
 
 import configparser
 import datetime
@@ -21,8 +21,7 @@ def main_screen(button=None):
 
 
 def main_screen_2(button):
-    body = main_body()
-    main.original_widget = urwid.ListBox(urwid.SimpleFocusListWalker(body))
+    set_body(main_body())
 
 
 def main_body():
@@ -43,6 +42,10 @@ def main_body():
     exit = urwid.Button('Exit')
     urwid.connect_signal(exit, 'click', exit_program)
     body.append(urwid.AttrMap(exit, None, focus_map='reversed'))
+
+    test_area_button = urwid.Button('Test Area')
+    urwid.connect_signal(test_area_button, 'click', test_screen)
+#    body.append(urwid.AttrMap(test_area_button, None, focus_map='reversed'))
 
     body.append(urwid.AttrMap(urwid.Divider(), None, focus_map='reversed'))
     body.append(urwid.AttrMap(urwid.Divider(), None, focus_map='reversed'))
@@ -76,6 +79,21 @@ def main_body():
     return body
 
 
+# TEST SCREEN
+def test_screen(button):
+    subprocess.Popen([bin_clear])
+    body = program_header()
+    output_widget = urwid.Edit('')
+    body.append(urwid.AttrMap(output_widget, None, focus_map='reversed'))
+    def received_output(data):
+        output_widget.set_edit_text(output_widget.text + data.decode('utf8'))
+
+    write_fd = main_loop.watch_pipe(received_output)
+    proc = subprocess.Popen(['bash', '-c', 'read','-p','asd',';', 'ping', '127.0.0.1'], stdout=write_fd, close_fds=True)
+#    proc = subprocess.Popen(['ping', '127.0.0.1'], stdout=write_fd, close_fds=True)
+    set_body(body)
+
+
 #  RESTORE SCREENS
 def restore_screen(button):
     body = program_header()
@@ -103,7 +121,7 @@ def restore_screen(button):
         urwid.connect_signal(button, 'click', restore_location_screen,
                                 selected_and_all_files)
         body.append(urwid.AttrMap(button, None, focus_map='reversed'))
-    main.original_widget = urwid.ListBox(urwid.SimpleFocusListWalker(body))
+    set_body(body)
 
 
 def restore_location_screen(button, selected_and_all_files):
@@ -128,7 +146,7 @@ def restore_location_screen(button, selected_and_all_files):
     text = urwid.Text(['This archives will be extracted one by one:\n  ' + files_to_restore_text])
     body.append(urwid.AttrMap(text, None, focus_map='reversed'))
     body.append(urwid.AttrMap(urwid.Divider(), None, focus_map='reversed'))
-    
+
     text2 = urwid.Text(['(step 2 of 2) Select extract point:'])
     body.append(urwid.AttrMap(text2, None, focus_map='reversed'))
     mountpoints = []
@@ -143,10 +161,11 @@ def restore_location_screen(button, selected_and_all_files):
     checkbox.set_state(True)
     checkbox.set_state(False)
     body.append(checkbox)
-    main.original_widget = urwid.ListBox(urwid.SimpleFocusListWalker(body))
+    set_body(body)
 
 
 def restore_start(button, params):
+    main_loop.stop()
     global clear_mountpoint_flag
     mountpoint = params[0]
     files_to_extract = params[1]
@@ -157,15 +176,17 @@ def restore_start(button, params):
     urwid.connect_signal(back, 'click', main_screen_2)
     body.append(back)
 
-    subprocess.call(bin_clear)
+    subprocess.call([bin_clear])
+    print_job_header()
+    run_and_log([bin_echo,'Restore:\n ','\n '.join(files_to_extract), '\nto:',mountpoint, '\n\n'], log_file)
     if clear_mountpoint:
         run_and_log([bin_rm, '-vrf', mountpoint], log_file)
-
     for f in files_to_extract:
-        run_and_log([bin_dar, '-x', f[:-6],'-w', '-v', '-R', mountpoint], log_file)
+        run_and_log([bin_dar, '-x', f[:-6], '-w', '-R', mountpoint], log_file)
+    time.sleep(5)
 
+    set_body(body)
 
-    main.original_widget = urwid.ListBox(urwid.SimpleFocusListWalker(body))
 
 
 #  MERGE SCREENS
@@ -196,7 +217,7 @@ def files_screen(button):
         urwid.connect_signal(button, 'click', item_screen,
                              current_and_previous_files)
         body.append(urwid.AttrMap(button, None, focus_map='reversed'))
-    main.original_widget = urwid.ListBox(urwid.SimpleFocusListWalker(body))
+    set_body(body)
 
 
 def item_screen(button, current_and_previous_files):
@@ -204,37 +225,36 @@ def item_screen(button, current_and_previous_files):
     current_file = current_and_previous_files[0]
     previous_file = current_and_previous_files[1]
     response = urwid.Text(["You chose                      : ", current_file,"\nit will be merged with this one: ", previous_file, "\n"])
-    go = urwid.Button('Go!')
-    urwid.connect_signal(go, 'click', run_merge, [current_file, previous_file])
+    body.append(urwid.AttrMap(response, None, focus_map='reversed'))
     back = urwid.Button('Back')
     urwid.connect_signal(back, 'click', files_screen)
+    body.append(urwid.AttrMap(back, None, focus_map='reversed'))
+    go = urwid.Button('Go!')
+    urwid.connect_signal(go, 'click', run_merge, [current_file, previous_file])
+    body.append(urwid.AttrMap(go, None, focus_map='reversed'))
     exit = urwid.Button('Exit')
     urwid.connect_signal(exit, 'click', exit_program)
-    main.original_widget = urwid.Filler(urwid.Pile([
-        body[0], body[1],
-        response,
-        urwid.AttrMap(back, None, focus_map='reversed'),
-        urwid.AttrMap(go, None, focus_map='reversed'),
-        urwid.AttrMap(exit, None, focus_map='reversed')])
-    )
+    body.append(urwid.AttrMap(exit, None, focus_map='reversed'))
+    set_body(body)
 
 
 def run_merge(button, files):
+    main_loop.stop()
     body = program_header()
     back = urwid.Button('Back to file list')
     urwid.connect_signal(back, 'click', files_screen)
+    body.append(urwid.AttrMap(back, None, focus_map='reversed'))
     current_file = files[0][:-6]
     previous_file = files[1][:-6]
     previous_fileFull = files[1]
-    subprocess.call([bin_clear])
+    print_job_header()
+    run_and_log([bin_echo,'Merging:',current_file, 'with',previous_file, '\n\n'], log_file)
     cmd_merge = [bin_dar,'-ak','-+',current_file,'-A',previous_file,'-@',current_file]
     run_and_log(cmd_merge,log_file)
     cmd_remove_previous_file = [bin_rm, '-f',previous_fileFull]
     run_and_log(cmd_remove_previous_file, log_file)
-    main.original_widget = urwid.Filler(urwid.Pile([
-        body[0], body[1],
-        urwid.AttrMap(back, None, focus_map='reversed')])
-    )
+    time.sleep(3)
+    set_body(body)
 
 
 # BACKUP SCREENS
@@ -281,7 +301,7 @@ def show_lvm(button):
                 body.append(urwid.AttrMap(urwid.Text('   ' + 'Volume Group: "' + v_g_name + '", mount point: "' +
                                                      mount_point + '", device name: "' + real_volume_path + '"'), None, focus_map='reversed'))
     body.append(urwid.AttrMap(urwid.Divider(), None, focus_map='reversed'))
-    main.original_widget = urwid.ListBox(urwid.SimpleFocusListWalker(body))
+    set_body(body)
 
 
 def set_clear_mountpoint_flag(checkbox, state):
@@ -311,6 +331,7 @@ def set_volumes_list(checkbox, state, backup_volumes_list):
 
 
 def start_backup(button, backup_volumes_list):
+    main_loop.stop()
     pipe_to_log = [' | ', bin_tee, ' -a ', log_file]
     subprocess.call([bin_clear])
     print('Logging to: ' + log_file)
@@ -342,7 +363,8 @@ def start_backup(button, backup_volumes_list):
         for file in files:
             filelist.append(file)
 
-        run_and_log([bin_echo,'\n\n======\n',timestamp,v_g_name,l_v_name, '\nMaking dir:\n', backup_tmp_mountpoint, '\n'], log_file)
+        print_job_header()
+        run_and_log([bin_echo,'Backup:',v_g_name,l_v_name, '\n\nMaking dir:\n', backup_tmp_mountpoint, '\n'], log_file)
         os.makedirs(backup_tmp_mountpoint)
         run_and_log([bin_lvcreate,'-L2G','-s','-n', backup_vol_name, l_v_path], log_file)
         run_and_log([bin_mount, '-o', 'ro', backup_vol_path, backup_tmp_mountpoint], log_file)
@@ -375,7 +397,6 @@ def start_backup(button, backup_volumes_list):
         if os.path.ismount(backup_tmp_mountpoint) is not True:
             os.rmdir(backup_tmp_mountpoint)
     time.sleep(3)
-    subprocess.call([bin_clear])
     main_screen_2(True)
 
 
@@ -417,22 +438,21 @@ def set_config_param(param, value, section='DEFAULT'):
 
 # COMMON
 
-def program_header():
-    return [urwid.Text("LVM DAR Backup"), urwid.Divider()]
+def check_bins(programs):
+    import shutil
+    bins = []
+    for program in programs:
+        binary_path = shutil.which(program)
+        if binary_path is not None:
+            bins.append(binary_path)
+        else:
+            print(program +' not found')
+            exit()
+    return bins
 
 
-def show_loader():
+def clear_screen():
     subprocess.call([bin_clear])
-    subprocess.call([bin_echo,'Please wait...'])
-
-
-def raise_root():
-    euid = os.geteuid()
-    if euid != 0:
-        print('Script not started as root. Running sudo..')
-        args = ['sudo', sys.executable] + sys.argv + [os.environ]
-        # the next line replaces the currently-running process with the sudo
-        os.execlpe('sudo', *args)
 
 
 def exit_program(button):
@@ -451,6 +471,41 @@ def get_directories():
     return [current_dir, working_dir]
 
 
+def get_file_list(directory):
+    files = glob.glob("*.dar")
+    files.sort()
+    filelist = []
+    for file in files:
+        filelist.append(file)
+    return filelist
+
+def print_job_header():
+    timestamp = '{0:%Y-%m-%d_%H-%M-%S}'.format(datetime.datetime.now())
+    run_and_log([bin_echo,'\n\n=== Running job === [',timestamp,'] ===\n\n'], log_file)
+
+def program_header():
+    return [urwid.Text("LVM DAR Backup"), urwid.Divider()]
+
+
+def raise_root():
+    euid = os.geteuid()
+    if euid != 0:
+        print('Script not started as root. Running sudo..')
+        args = ['sudo', sys.executable] + sys.argv + [os.environ]
+        # the next line replaces the currently-running process with the sudo
+        os.execlpe('sudo', *args)
+
+
+def redraw_screen():
+    try:
+        main_loop.stop()
+    except:
+        pass
+    finally:
+        clear_screen()
+        main_loop.start()
+
+
 def run_and_log(cmd, log_file):
     if os.path.isfile(log_file) is False:
         log = open(log_file, 'w')
@@ -458,6 +513,8 @@ def run_and_log(cmd, log_file):
     log = open(log_file, 'a')
 
     if cmd[0] is not bin_echo:
+        
+        log.write('[' + str(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")) + ']\n' )
         log.write('[Exec] ' + subprocess.list2cmdline(cmd))
         print('[Exec] '+ subprocess.list2cmdline(cmd))
 
@@ -476,6 +533,15 @@ def run_and_log(cmd, log_file):
     log.close()
 
 
+def save_excludes(button, exclude_list):
+    exclude_string = ''
+    for e in exclude_list.split('\n'):
+        if e.strip() is not '':
+            exclude_string += e.strip() + '|'
+    exclude_string = exclude_string[:-1]  # remove last delimiter
+    set_config_param('exclude_list', exclude_string)
+
+
 def save_working_dir(button, working_dir):
     set_config_param('working_dir', working_dir)
     body = program_header()
@@ -487,36 +553,14 @@ def save_working_dir(button, working_dir):
     body.append(urwid.AttrMap(back, None, focus_map='reversed'))
     main.original_widget = urwid.ListBox(urwid.SimpleFocusListWalker(body))
 
+def set_body(body):
+    main.original_widget = urwid.ListBox(urwid.SimpleFocusListWalker(body))
+    redraw_screen()
 
-def save_excludes(button, exclude_list):
-    exclude_string = ''
-    for e in exclude_list.split('\n'):
-        if e.strip() is not '':
-            exclude_string += e.strip() + '|'
-    exclude_string = exclude_string[:-1]  # remove last delimiter
-    set_config_param('exclude_list', exclude_string)
-
-
-def get_file_list(directory):
-    files = glob.glob("*.dar")
-    files.sort()
-    filelist = []
-    for file in files:
-        filelist.append(file)
-    return filelist
-
-
-def check_bins(programs):
-    import shutil
-    bins = []
-    for program in programs:
-        binary_path = shutil.which(program)
-        if binary_path is not None:
-            bins.append(binary_path)
-        else:
-            print(program +' not found')
-            exit()
-    return bins
+def show_loader():
+    main_loop.stop()
+    clear_screen()
+    subprocess.call([bin_echo,'Please wait...'])
 
 
 
